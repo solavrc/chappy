@@ -1,16 +1,16 @@
-import * as cdk from 'aws-cdk-lib';
-import { Construct } from 'constructs';
-// import * as sqs from 'aws-cdk-lib/aws-sqs';
+import {
+  Stack,
+  StackProps,
+  aws_secretsmanager as secretsmanager,
+} from 'aws-cdk-lib'
+import { Construct } from 'constructs'
 
-export class ChatGptDiscordBotStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
+interface ChatGptDiscordBotStackProps extends StackProps {
+  secret: secretsmanager.ISecret
+}
 
-    // The code that defines your stack goes here
-
-    // example resource
-    // const queue = new sqs.Queue(this, 'ChatGptDiscordBotQueue', {
-    //   visibilityTimeout: cdk.Duration.seconds(300)
-    // });
+export class ChatGptDiscordBotStack extends Stack {
+  constructor(scope: Construct, id: string, props: ChatGptDiscordBotStackProps) {
+    super(scope, id, props)
   }
 }
