@@ -1,0 +1,29 @@
+on:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      - uses: actions/cache@v3
+        id: node-modules-cache
+        with:
+          path: "node_modules"
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+      - name: Run npm ci
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
+        run: npm ci
+      - run: npm run test
+      - name: cdk diff
+        uses: youyo/aws-cdk-github-actions@v2
+        with:
+          cdk_subcommand: 'diff'
+          actions_comment: true
