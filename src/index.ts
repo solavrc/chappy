@@ -47,7 +47,7 @@ process.on('SIGTERM', () => process.exit(0));
             console.log(JSON.stringify({ object, id, model, messages, choices, usage }))
             return choices.at(0)?.message.content!
           })
-          const thread = await message.channel.threads.create({ name, startMessage: message, autoArchiveDuration: 60 * 24 * 3 })
+          const thread = await message.channel.threads.create({ name, startMessage: message, autoArchiveDuration: 60 * 24 })
           await thread.send({ content: choices.at(0)?.message.content! })
         }
       }
