@@ -38,13 +38,13 @@ export class ChatGptDiscordBotStack extends Stack {
       cpu: '256',
       memoryMiB: '512',
       runtimePlatform: {
-        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        cpuArchitecture: ecs.CpuArchitecture.X86_64,
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
       },
     })
     taskDefinition.addContainer('Container', {
       image: ecs.ContainerImage.fromAsset('./', {
-        platform: ecra.Platform.LINUX_ARM64,
+        platform: ecra.Platform.LINUX_AMD64,
       }),
       secrets: {
         DISCORD_BOT_TOKEN: ecs.Secret.fromSecretsManager(props.secret, 'DISCORD_BOT_TOKEN'),
