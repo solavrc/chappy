@@ -59,7 +59,7 @@ export class ChatGptDiscordBotStack extends Stack {
         DISCORD_BOT_TOKEN: ecs.Secret.fromSecretsManager(props.secret, 'DISCORD_BOT_TOKEN'),
         OPENAI_API_KEY: ecs.Secret.fromSecretsManager(props.secret, 'OPENAI_API_KEY'),
       },
-      logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'discord-bot', logGroup: new logs.LogGroup(this, 'LogGroup', { removalPolicy: RemovalPolicy.DESTROY }) }),
+      logging: ecs.LogDrivers.awsLogs({ streamPrefix: this.stackName }),
     })
     new ecs.FargateService(this, 'Service', {
       assignPublicIp: true,
@@ -71,7 +71,6 @@ export class ChatGptDiscordBotStack extends Stack {
       minHealthyPercent: 100,
       platformVersion: ecs.FargatePlatformVersion.VERSION1_4,
       taskDefinition,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
     })
   }
 }
