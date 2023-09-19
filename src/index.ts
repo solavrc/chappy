@@ -51,9 +51,13 @@ process.on('SIGTERM', () => process.exit(0));
           await thread.send({ content: choices.at(0)?.message.content! })
         }
       }
-    } catch (error) {
-      console.error(error)
-      await message.reply({ content: (error as Error).name })
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error(JSON.stringify({ ...error, name: error.name, message: error.message, stack: error.stack }))
+        await message.reply({ content: JSON.stringify({ name: error.name, message: error.message }) })
+      } else {
+        throw error
+      }
     }
   })
   await client.login(DISCORD_BOT_TOKEN)
