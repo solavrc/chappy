@@ -39,13 +39,13 @@ process.on('SIGTERM', () => process.exit(0));
           const name = await openai.chat.completions.create({
             model: 'gpt-3.5-turbo',
             messages: [
-              { role: 'system', content: '概要を日本語100文字以内でタイトルとして抽出してください。' },
+              { role: 'system', content: '概要を日本語30文字程度でタイトルとして抽出してください。' },
               { role: 'user', content: cleanContent },
               { role: 'assistant', content: choices.at(0)?.message.content! }
             ],
           }).then(({ object, id, model, choices, usage }) => {
             console.log(JSON.stringify({ object, id, model, messages, choices, usage }))
-            return choices.at(0)?.message.content!
+            return choices.at(0)?.message.content?.slice(0, 50)!
           })
           const thread = await message.channel.threads.create({ name, startMessage: message, autoArchiveDuration: 60 * 24 })
           await thread.send({ content: choices.at(0)?.message.content! })
