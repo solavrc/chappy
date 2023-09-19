@@ -48,10 +48,13 @@ export class ChatGptDiscordBotStack extends Stack {
         platform: ecra.Platform.LINUX_AMD64,
       }),
       healthCheck: {
-        command: ['CMD-SHELL', 'curl -f http://localhost:8080 || exit 1'],
+        command: ['CMD-SHELL', 'curl -f http://localhost:8080/ || exit 1'], /** @see Dockerfile */
+        interval: Duration.seconds(5),
+        retries: 2,
         startPeriod: Duration.seconds(0),
+        timeout: Duration.seconds(2)
       },
-      portMappings: [{ containerPort: 8080, hostPort: 8080 }],
+      portMappings: [{ containerPort: 8080 }],
       secrets: {
         DISCORD_BOT_TOKEN: ecs.Secret.fromSecretsManager(props.secret, 'DISCORD_BOT_TOKEN'),
         OPENAI_API_KEY: ecs.Secret.fromSecretsManager(props.secret, 'OPENAI_API_KEY'),
