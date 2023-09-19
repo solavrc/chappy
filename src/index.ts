@@ -31,7 +31,7 @@ process.on('SIGTERM', () => process.exit(0));
             messages: trimMessagesToTokenLimit(messages, 4096),
           })
           console.log(JSON.stringify({ object, id, model, messages, choices, usage }))
-          await message.reply({ content: choices.at(0)?.message.content! })
+          await message.reply({ content: choices.at(0)?.message.content!, failIfNotExists: false })
         } else if (message.channel.type === ChannelType.GuildText) {
           const { cleanContent } = message
           const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: cleanContent }]
@@ -58,7 +58,7 @@ process.on('SIGTERM', () => process.exit(0));
     } catch (error: unknown) {
       if (error instanceof Error) {
         console.error(JSON.stringify({ ...error, name: error.name, message: error.message, stack: error.stack }))
-        await message.reply({ content: JSON.stringify({ name: error.name, message: error.message }) })
+        await message.reply({ content: JSON.stringify({ name: error.name, message: error.message }), failIfNotExists: false })
       } else {
         throw error
       }
