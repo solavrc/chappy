@@ -1,4 +1,5 @@
 import {
+  Duration,
   RemovalPolicy,
   Stack,
   StackProps,
@@ -46,11 +47,19 @@ export class ChatGptDiscordBotStack extends Stack {
       image: ecs.ContainerImage.fromAsset('./', {
         platform: ecra.Platform.LINUX_AMD64,
       }),
+      healthCheck: {
+        command: ['CMD-SHELL', 'curl -f http://localhost:8080/ || exit 1'], /** @see Dockerfile */
+        interval: Duration.seconds(5),
+        retries: 2,
+        startPeriod: Duration.seconds(0),
+        timeout: Duration.seconds(2)
+      },
+      portMappings: [{ containerPort: 8080 }],
       secrets: {
         DISCORD_BOT_TOKEN: ecs.Secret.fromSecretsManager(props.secret, 'DISCORD_BOT_TOKEN'),
         OPENAI_API_KEY: ecs.Secret.fromSecretsManager(props.secret, 'OPENAI_API_KEY'),
       },
-      logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'discord-bot', logGroup: new logs.LogGroup(this, 'LogGroup', { removalPolicy: RemovalPolicy.DESTROY }) }),
+      logging: ecs.LogDrivers.awsLogs({ streamPrefix: this.stackName }),
     })
     new ecs.FargateService(this, 'Service', {
       assignPublicIp: true,
@@ -58,11 +67,10 @@ export class ChatGptDiscordBotStack extends Stack {
       cluster,
       desiredCount: 1,
       enableExecuteCommand: false,
-      maxHealthyPercent: 100,
-      minHealthyPercent: 0,
+      maxHealthyPercent: 200,
+      minHealthyPercent: 100,
       platformVersion: ecs.FargatePlatformVersion.VERSION1_4,
       taskDefinition,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
     })
   }
 }

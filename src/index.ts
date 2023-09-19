@@ -2,6 +2,7 @@ import { ChannelType, Client, Events, GatewayIntentBits } from 'discord.js'
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { getChatCompletionMessage, trimMessagesToTokenLimit } from './chat_gpt'
 import OpenAI from 'openai'
+import { createServer } from 'http'
 
 const client = new Client({
   intents: [
@@ -15,6 +16,9 @@ process.on('SIGTERM', () => process.exit(0));
 
 (async ({ DISCORD_BOT_TOKEN, OPENAI_API_KEY }) => {
   const openai = new OpenAI({ apiKey: OPENAI_API_KEY })
+  client.on(Events.ClientReady, async _client => {
+    createServer((_, response) => response.writeHead(204).end()).listen(8080)
+  })
   client.on(Events.MessageCreate, async message => {
     try {
       if (message.mentions.has(client.user?.id!) && message.author.id !== client.user?.id) {
