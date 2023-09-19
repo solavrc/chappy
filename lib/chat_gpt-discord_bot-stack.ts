@@ -1,4 +1,5 @@
 import {
+  Duration,
   RemovalPolicy,
   Stack,
   StackProps,
@@ -46,6 +47,11 @@ export class ChatGptDiscordBotStack extends Stack {
       image: ecs.ContainerImage.fromAsset('./', {
         platform: ecra.Platform.LINUX_AMD64,
       }),
+      healthCheck: {
+        command: ['CMD-SHELL', 'curl -f http://localhost:8080 || exit 1'],
+        startPeriod: Duration.seconds(0),
+      },
+      portMappings: [{ containerPort: 8080, hostPort: 8080 }],
       secrets: {
         DISCORD_BOT_TOKEN: ecs.Secret.fromSecretsManager(props.secret, 'DISCORD_BOT_TOKEN'),
         OPENAI_API_KEY: ecs.Secret.fromSecretsManager(props.secret, 'OPENAI_API_KEY'),
