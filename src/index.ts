@@ -23,6 +23,7 @@ process.on('SIGTERM', () => process.exit(0));
     try {
       if (message.mentions.has(client.user?.id!) && message.author.id !== client.user?.id) {
         if (message.channel.isThread()) {
+          await message.channel.sendTyping()
           const threadMessages = await message.channel.messages.fetch()
           const messages = await threadMessages.reverse().reduce<Promise<ChatCompletionMessageParam[]>>(async (messages, message) =>
             [...await messages, await getChatCompletionMessage(client, message)], Promise.resolve([]))
@@ -33,6 +34,8 @@ process.on('SIGTERM', () => process.exit(0));
           console.log(JSON.stringify({ object, id, model, messages, choices, usage }))
           await message.reply({ content: choices.at(0)?.message.content!, failIfNotExists: false })
         } else if (message.channel.type === ChannelType.GuildText) {
+          const thread = await message.channel.threads.create({ name: '返信中...', startMessage: message, autoArchiveDuration: 60 * 24 })
+          await thread.sendTyping()
           const { cleanContent } = message
           const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: cleanContent }]
           const { object, id, model, choices, usage } = await openai.chat.completions.create({
@@ -51,7 +54,7 @@ process.on('SIGTERM', () => process.exit(0));
             console.log(JSON.stringify({ object, id, model, messages, choices, usage }))
             return choices.at(0)?.message.content?.slice(0, 50)!
           })
-          const thread = await message.channel.threads.create({ name, startMessage: message, autoArchiveDuration: 60 * 24 })
+          await thread.edit({ name })
           await thread.send({ content: choices.at(0)?.message.content! })
         }
       }
