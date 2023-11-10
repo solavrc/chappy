@@ -21,11 +21,12 @@
   },
   "dependencies": {
     "aws-cdk-lib": "2.96.2",
+    "axios": "^1.6.1",
     "constructs": "^10.0.0",
     "discord.js": "^14.13.0",
     "esbuild-register": "^3.5.0",
     "gpt-tokenizer": "^2.1.1",
-    "openai": "^4.7.1",
+    "openai": "^4.17.3",
     "source-map-support": "^0.5.21"
   }
 }

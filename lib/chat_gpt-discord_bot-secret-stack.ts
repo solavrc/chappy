@@ -15,7 +15,8 @@ export class ChatGptDiscordBotSecretStack extends Stack {
         generateStringKey: 'DUMMY_KEY',
         secretStringTemplate: JSON.stringify({
           DISCORD_BOT_TOKEN: undefined,
-          OPENAI_API_KEY: undefined
+          OPENAI_API_KEY: undefined,
+          OPENAI_ASSISTANT_ID: undefined,
         }),
       },
       removalPolicy: RemovalPolicy.DESTROY
