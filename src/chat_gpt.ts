@@ -1,17 +1,27 @@
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { ChatCompletionMessageParam, ChatCompletionContentPartImage, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam } from 'openai/resources/chat/completions'
 import { ChatMessage } from 'gpt-tokenizer/esm/GptEncoding'
 import { Client, Message } from 'discord.js'
 import { notStrictEqual } from 'assert'
 import tokenizer from 'gpt-tokenizer'
 
-export const getChatCompletionMessage = async (client: Client, message: Message<true>): Promise<ChatCompletionMessageParam> => {
-  let content = message.cleanContent
-  if (!content) {
-    const { cleanContent } = await message.fetchReference()
-    content = cleanContent
-  }
+export const getChatCompletionMessage = async (client: Client, message: Message<boolean>): Promise<ChatCompletionAssistantMessageParam | ChatCompletionUserMessageParam> => {
+  message = message.reference ? await message.fetchReference() : message
   const role = message.author.id === client.user?.id ? 'assistant' : 'user'
-  return { role, content }
+  const [images, _nonImages] = message.attachments.partition(attachment => attachment.contentType?.includes('image/'))
+  if (role === 'user')
+    return {
+      role,
+      content: images
+        ? [
+          { type: 'text', text: message.cleanContent },
+          ...images.map<ChatCompletionContentPartImage>(({ url }) => ({ type: 'image_url', image_url: { url, detail: 'high' } }))
+        ]
+        : message.cleanContent
+    }
+  return {
+    role,
+    content: message.cleanContent ?? await message.fetchReference().then(({ cleanContent }) => cleanContent)
+  }
 }
 
 /** @see https://github.com/niieani/gpt-tokenizer/issues/15 */
