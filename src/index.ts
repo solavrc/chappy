@@ -62,17 +62,11 @@ process.on('SIGTERM', () => process.exit(0));
         message.mentions.has(client.user!)
         && !message.mentions.everyone /** @see https://old.discordjs.dev/#/docs/discord.js/main/class/MessageMentions?scrollTo=everyone */
         && !message.author.bot
-      const isChappyThread = async (message: Message) =>
-        message.channel.isThread()
-        && message.channel.fetchStarterMessage()
-          .then(message => isActivateIntentMessage(message!))
-
       if (message.author.bot || message.author.id === client.user?.id)
         return
-      if (await isChappyThread(message)) {
+      if (message.channel.isThread() && message.channel.ownerId === client.user?.id) {
         const [_images, nonImages] = message.attachments.partition(attachment => attachment.contentType?.includes('image/'))
-        const thread_id = await message.channel.messages.fetchPinned()
-          .then(messages => messages.find(({ cleanContent }) => cleanContent.startsWith('thread_'))?.cleanContent)
+        const thread_id = message.channel.name.startsWith('thread_') && message.channel.name
         if (thread_id) {
           const file_ids = await Promise.all(nonImages.map(async ({ url, name }) => uploadFileFromURL(url, name)))
           await openai.beta.threads.messages.create(thread_id, {
@@ -85,12 +79,10 @@ process.on('SIGTERM', () => process.exit(0));
             await message.channel.sendTyping()
             const [{ content }] = await runAssistant(assistant_id, thread_id)
             const { text: { annotations, value } } = content.find((content): content is Threads.Messages.MessageContentText => content.type === 'text')!
-            await message.reply({
-              content: value,
-              embeds: createEmbeds(annotations)
-            })
+            await message.reply({ content: value, embeds: createEmbeds(annotations) })
           }
         } else if (isActivateIntentMessage(message)) {
+          await message.channel.sendTyping()
           const threadMessages = await message.channel.messages.fetch()
           const messages = await threadMessages.reverse().reduce<Promise<ChatCompletionMessageParam[]>>(async (messages, message) =>
             [...await messages, await getChatCompletionMessage(client, message)], Promise.resolve([]))
@@ -103,17 +95,7 @@ process.on('SIGTERM', () => process.exit(0));
           await message.reply({ content: choices.at(0)?.message.content!, failIfNotExists: false })
         }
       } else if (message.channel.type === ChannelType.GuildText && isActivateIntentMessage(message)) {
-        const name = await openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            { role: 'system', content: '概要を日本語30文字程度でタイトルとして抽出してください。' },
-            { role: 'user', content: message.cleanContent },
-          ],
-        }).then(({ object, id, model, choices, usage }) => {
-          console.log(JSON.stringify({ object, id, model, choices, usage }))
-          return choices.at(0)?.message.content?.slice(0, 30)!
-        })
-        const thread = await message.channel.threads.create({ name, startMessage: message, autoArchiveDuration: 60 * 24 })
+        const thread = await message.channel.threads.create({ name: '返信中...', startMessage: message, autoArchiveDuration: 60 * 24 })
         await thread.sendTyping()
         const [images, nonImages] = message.attachments.partition(attachment => attachment.contentType?.includes('image/'))
         /**
@@ -134,9 +116,7 @@ process.on('SIGTERM', () => process.exit(0));
               }
             }]
           })
-          /** `thread_id` を参照のためピン留めする */
-          await thread.send({ content: thread_id })
-            .then(message => message.pin())
+          await thread.edit({ name: thread_id })
           const [{ content }] = await runAssistant(assistant_id, thread_id)
           const { text: { annotations, value } } = content.find((content): content is Threads.Messages.MessageContentText => content.type === 'text')!
           await thread.send({ content: value, embeds: createEmbeds(annotations) })
@@ -148,6 +128,7 @@ process.on('SIGTERM', () => process.exit(0));
             max_tokens: 4096,
           })
           console.log(JSON.stringify({ object, id, model, messages, choices, usage }))
+          await thread.edit({ name: model })
           await thread.send({ content: choices.at(0)?.message.content! })
         }
       }
