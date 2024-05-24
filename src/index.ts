@@ -5,13 +5,13 @@ import {
   Events,
   GatewayIntentBits,
   type Attachment,
-  type Collection,
   type Message,
   type MessageReplyOptions
 } from 'discord.js'
 import { createServer } from 'http'
 import OpenAI, { toFile } from 'openai'
 import { type Threads } from 'openai/resources/beta'
+import { type RunCreateParamsBase } from 'openai/resources/beta/threads/runs/runs'
 import { type ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { getChatCompletionMessage } from './chat_gpt'
 
@@ -22,27 +22,34 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
 })
-
-const uploadFileFromURLtoOpenAI = async (openai: OpenAI, url: string, name?: string) => {
+const uploadAttachments = async (openai: OpenAI, { url, name, contentType }: Attachment): Promise<string> => {
   const { data } = await axios.get(url, { responseType: 'arraybuffer' })
-  const { id } = await openai.files.create({ file: await toFile(data, name ?? new URL(url).pathname.split('/').at(-1)), purpose: 'assistants' })
+  const { id } = await openai.files.create({
+    file: await toFile(data, name ?? new URL(url).pathname.split('/').at(-1)),
+    // @ts-ignore
+    purpose: contentType?.includes('image/') ? 'vision' : 'assistants', /** @see https://github.com/openai/openai-node/pull/851 */
+  })
   return id
 }
-/** @todo fix */
-const toOpenAIAttachments = (openai: OpenAI, attachments: Collection<string, Attachment>) =>
-  Promise.all(attachments.map(({ url, name }) => uploadFileFromURLtoOpenAI(openai, url, name)))
-    .then(file_ids => file_ids.map(file_id => ({ file_id })))
+const toOpenAIAttachments = (openai: OpenAI, message: Message): Promise<[Threads.Messages.MessageCreateParams.Attachment[], Threads.Messages.ImageFileContentBlock[]]> => {
+  const [images, nonImages] = message.attachments.partition(attachment => attachment.contentType?.includes('image/'))
+  return Promise.all([
+    Promise.all(nonImages.map<Promise<Threads.Messages.MessageCreateParams.Attachment>>(image => uploadAttachments(openai, image).then(file_id => ({ file_id, tools: [{ type: 'code_interpreter' }] })))),
+    Promise.all(images.map<Promise<Threads.Messages.ImageFileContentBlock>>(image => uploadAttachments(openai, image).then(file_id => ({ type: 'image_file', image_file: { file_id, detail: 'auto' } }))))
+  ])
+}
 const toDiscordEmbeds = (annotations: Threads.Messages.Annotation[]) =>
   annotations
     .filter((annotation): annotation is Threads.Messages.FileCitationAnnotation => annotation.type === 'file_citation')
     .map(({ text, file_citation: { quote } }) => ({ description: `${text}${quote}` }))
 /** `callback`: discord channel/thread に返信する関数。例: `message.reply.bind(message)` */
-const runAssistantAndResponse = async (openai: OpenAI, assistant_id: string, thread_id: string, callback: (payload: MessageReplyOptions) => Promise<Message<boolean>>) => {
-  /** `status: completed`後にresolve */
-  const { object, id, model } = await openai.beta.threads.runs.createAndPoll(thread_id, { assistant_id })
-  const { data: [{ content }] } = await openai.beta.threads.messages.list(thread_id, { run_id: id })
-  console.log(JSON.stringify({ object, id, model, messages: [content] }))
-  const { text: { annotations, value } } = content.find((content): content is Threads.Messages.TextContentBlock => content.type === 'text')!
+const runAssistantAndResponse = async (openai: OpenAI, model_name: RunCreateParamsBase['model'], assistant_id: string, thread_id: string, callback: (payload: MessageReplyOptions) => Promise<Message<boolean>>) => {  /** `status: completed`後にresolve */
+  const { object, id, model } = await openai.beta.threads.runs.createAndPoll(thread_id, { assistant_id, model: model_name })
+  const { data: messages } = await openai.beta.threads.messages.list(thread_id, { run_id: id })
+  console.log(JSON.stringify({ object, id, model, messages }))
+  if (!messages.length)
+    throw new Error(JSON.stringify({ object, id, model, messages }))
+  const { text: { annotations, value } } = messages.at(0)?.content.find((content): content is Threads.Messages.TextContentBlock => content.type === 'text')!
   for (let len = 0; len < value.length; len += 2000) {
     await callback({ content: value.slice(len, len + 2000), embeds: toDiscordEmbeds(annotations.splice(-Infinity)) })
   }
@@ -68,7 +75,7 @@ process.on('SIGTERM', () => process.exit(0));
         /** chappyが作成したthreadへの返信 */
         const thread_id = message.channel.name.startsWith('thread_') && message.channel.name
         if (thread_id) {
-          const attachments = await toOpenAIAttachments(openai, message.attachments)
+          const [attachments, imageContents] = await toOpenAIAttachments(openai, message)
           /**
            * `thread`の状態を管理せず、メッセージの追加を投機実行する:
            * > {"name":"Error","message":"400 Can't add messages to `thread_id` while a run `run_id` is active."}
@@ -77,7 +84,11 @@ process.on('SIGTERM', () => process.exit(0));
            */
           await openai.beta.threads.messages.create(thread_id, {
             role: 'user',
-            content: message.cleanContent,
+            content: [{
+              type: 'text',
+              text: message.cleanContent
+            },
+            ...imageContents],
             attachments,
             metadata: {
               discord_thread_id: message.thread?.id,
@@ -86,7 +97,8 @@ process.on('SIGTERM', () => process.exit(0));
           }, { maxRetries: 10 })
           if (isActivateIntentMessage(message)) {
             await message.channel.sendTyping()
-            await runAssistantAndResponse(openai, assistant_id, thread_id, message.reply.bind(message))
+            const model = imageContents.length ? 'gpt-4-vision-preview' : 'gpt-4o' /** @temp */
+            await runAssistantAndResponse(openai, model, assistant_id, thread_id, message.reply.bind(message))
           }
         } else {
           /** thread_idが特定できない場合, chappy以外が作成したthreadの場合 */
@@ -104,10 +116,14 @@ process.on('SIGTERM', () => process.exit(0));
         /** channel -> 新規thread作成 */
         const { id: thread_id } = await openai.beta.threads.create()
         const channelThread = await message.channel.threads.create({ name: thread_id, startMessage: message, autoArchiveDuration: 60 * 24 })
-        const attachments = await toOpenAIAttachments(openai, message.attachments)
+        const [attachments, imageContents] = await toOpenAIAttachments(openai, message)
         await openai.beta.threads.messages.create(thread_id, {
           role: 'user',
-          content: message.cleanContent,
+          content: [{
+            type: 'text',
+            text: message.cleanContent
+          },
+          ...imageContents],
           attachments,
           metadata: {
             discord_thread_id: channelThread.id,
@@ -115,7 +131,8 @@ process.on('SIGTERM', () => process.exit(0));
           }
         })
         await channelThread.sendTyping()
-        await runAssistantAndResponse(openai, assistant_id, thread_id, channelThread.send.bind(channelThread))
+        const model = imageContents.length ? 'gpt-4-vision-preview' : 'gpt-4o' /** @temp */
+        await runAssistantAndResponse(openai, model, assistant_id, thread_id, channelThread.send.bind(channelThread))
       }
     } catch (error: unknown) {
       if (error instanceof Error) {
