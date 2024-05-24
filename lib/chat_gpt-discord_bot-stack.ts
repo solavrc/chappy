@@ -58,6 +58,7 @@ export class ChatGptDiscordBotStack extends Stack {
       secrets: {
         DISCORD_BOT_TOKEN: ecs.Secret.fromSecretsManager(props.secret, 'DISCORD_BOT_TOKEN'),
         OPENAI_API_KEY: ecs.Secret.fromSecretsManager(props.secret, 'OPENAI_API_KEY'),
+        OPENAI_ASSISTANT_ID: ecs.Secret.fromSecretsManager(props.secret, 'OPENAI_ASSISTANT_ID'),
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: this.stackName }),
     })
