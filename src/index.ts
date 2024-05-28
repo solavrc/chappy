@@ -69,9 +69,9 @@ const runAssistantAndResponse = async (openai: OpenAI, assistant_id: string, thr
                   chunks.push(content.slice(index, index + maxContentLength))
                 }
                 content = chunks.at(-1)!
-                await replyMessage?.edit({ content: chunks.shift() })
+                await replyMessage?.edit({ content: chunks.shift(), embeds: [] })
                 for await (const chunk of chunks) {
-                  replyMessage = await message.reply({ content: chunk, embeds: [{ description }] })
+                  replyMessage = await replyMessage?.reply({ content: chunk, embeds: [{ description }] })
                 }
               } else if (replyMessage?.cleanContent !== content) {
                 await replyMessage?.edit({ content, embeds: [{ description }] })
