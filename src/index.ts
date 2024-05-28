@@ -6,12 +6,10 @@ import {
   GatewayIntentBits,
   type Attachment,
   type Message,
-  type MessageReplyOptions
 } from 'discord.js'
 import { createServer } from 'http'
 import OpenAI, { toFile } from 'openai'
-import { type Threads } from 'openai/resources/beta'
-import { type RunCreateParamsBase } from 'openai/resources/beta/threads/runs/runs'
+import { type Threads, type Assistants } from 'openai/resources/beta'
 import { type ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { getChatCompletionMessage } from './chat_gpt'
 
@@ -38,21 +36,78 @@ const toOpenAIAttachments = (openai: OpenAI, message: Message): Promise<[Threads
     Promise.all(images.map<Promise<Threads.Messages.ImageFileContentBlock>>(image => uploadAttachments(openai, image).then(file_id => ({ type: 'image_file', image_file: { file_id, detail: 'auto' } }))))
   ])
 }
-const toDiscordEmbeds = (annotations: Threads.Messages.Annotation[]) =>
-  annotations
-    .filter((annotation): annotation is Threads.Messages.FileCitationAnnotation => annotation.type === 'file_citation')
-    .map(({ text, file_citation: { quote } }) => ({ description: `${text}${quote}` }))
-/** `callback`: discord channel/thread に返信する関数。例: `message.reply.bind(message)` */
-const runAssistantAndResponse = async (openai: OpenAI, model_name: RunCreateParamsBase['model'], assistant_id: string, thread_id: string, callback: (payload: MessageReplyOptions) => Promise<Message<boolean>>) => {  /** `status: completed`後にresolve */
-  const { object, id, model } = await openai.beta.threads.runs.createAndPoll(thread_id, { assistant_id, model: model_name })
-  const { data: messages } = await openai.beta.threads.messages.list(thread_id, { run_id: id })
-  console.log(JSON.stringify({ object, id, model, messages }))
-  if (!messages.length)
-    throw new Error(JSON.stringify({ object, id, model, messages }))
-  const { text: { annotations, value } } = messages.at(0)?.content.find((content): content is Threads.Messages.TextContentBlock => content.type === 'text')!
-  for (let len = 0; len < value.length; len += 2000) {
-    await callback({ content: value.slice(len, len + 2000), embeds: toDiscordEmbeds(annotations.splice(-Infinity)) })
-  }
+const runAssistantAndResponse = async (openai: OpenAI, assistant_id: string, thread_id: string, message: Message): Promise<void> => {
+  await new Promise<void>(async (resolve, reject) => {
+    /** @see https://discord.com/developers/docs/topics/rate-limits */
+    const replyIntervalMs = 1000
+    let lastEvent: Assistants.AssistantStreamEvent | undefined
+    let intervalId: NodeJS.Timeout | undefined
+    let replyMessage: Message | undefined
+    let content = ''
+    try {
+      replyMessage = message.channel.isThread()
+        ? await message.reply({ content: '...' })
+        : await message.thread?.send({ content: '...' })
+      const stream = openai.beta.threads.runs.stream(thread_id, { assistant_id, stream: true })
+      stream.on('event', async (event) => {
+        lastEvent = event
+        switch (event.event) {
+          case 'thread.run.created':
+            intervalId = setInterval(async () => {
+              /**
+               * DiscordAPIError[50035]: Invalid Form Body
+               * content[BASE_TYPE_MAX_LENGTH]: Must be 2000 or fewer in length.
+               *
+               * `Util.splitMessage()` has been removed. This utility method is something the developer themselves should do.
+               * @see https://discordjs.guide/additional-info/changes-in-v14.html#util
+               */
+              const maxContentLength = 2000
+              const description = `[${new Date().toISOString()}] ${lastEvent?.event}`
+              if (content.length > maxContentLength) {
+                const chunks: string[] = []
+                for (let index = 0; index < content.length; index += maxContentLength) {
+                  chunks.push(content.slice(index, index + maxContentLength))
+                }
+                content = chunks.at(-1)!
+                await replyMessage?.edit({ content: chunks.shift() })
+                for await (const chunk of chunks) {
+                  replyMessage = await message.reply({ content: chunk, embeds: [{ description }] })
+                }
+              } else if (replyMessage?.cleanContent !== content) {
+                await replyMessage?.edit({ content, embeds: [{ description }] })
+              } else {
+                await replyMessage?.edit({ embeds: [{ description }] })
+              }
+            }, replyIntervalMs)
+            break
+          case 'thread.message.delta':
+            content += event.data.delta.content?.filter(content => content.type === 'text')
+              .reduce((text, chunk) => text + chunk.text?.value, '')
+            break
+          case 'thread.message.completed':
+            /** @todo 添付ファイル処理 */
+            break
+          case 'thread.run.completed':
+            await new Promise(resolve => setTimeout(resolve, replyIntervalMs)) /** draining */
+            await Promise.all([
+              replyMessage?.edit({ embeds: [] }),
+              replyMessage?.react('✅')
+            ])
+            clearInterval(intervalId)
+            /** @todo logging */
+            resolve()
+            break
+          case 'error':
+          case 'thread.run.cancelled':
+          case 'thread.run.expired':
+          case 'thread.run.failed':
+            throw new Error(JSON.stringify(event))
+        }
+      })
+    } catch (error) {
+      reject(error)
+    }
+  })
 }
 const isActivateIntentMessage = (message: Message) =>
   message.mentions.has(client.user!)
@@ -95,11 +150,8 @@ process.on('SIGTERM', () => process.exit(0));
               discord_message_id: message.id
             }
           }, { maxRetries: 10 })
-          if (isActivateIntentMessage(message)) {
-            await message.channel.sendTyping()
-            const model = imageContents.length ? 'gpt-4-vision-preview' : 'gpt-4o' /** @temp */
-            await runAssistantAndResponse(openai, model, assistant_id, thread_id, message.reply.bind(message))
-          }
+          if (isActivateIntentMessage(message))
+            await runAssistantAndResponse(openai, assistant_id, thread_id, message)
         } else {
           /** thread_idが特定できない場合, chappy以外が作成したthreadの場合 */
           const threadMessages = await message.channel.messages.fetch()
@@ -130,9 +182,7 @@ process.on('SIGTERM', () => process.exit(0));
             discord_message_id: message.id
           }
         })
-        await channelThread.sendTyping()
-        const model = imageContents.length ? 'gpt-4-vision-preview' : 'gpt-4o' /** @temp */
-        await runAssistantAndResponse(openai, model, assistant_id, thread_id, channelThread.send.bind(channelThread))
+        await runAssistantAndResponse(openai, assistant_id, thread_id, message)
       }
     } catch (error: unknown) {
       if (error instanceof Error) {
