@@ -6,10 +6,11 @@ import {
   aws_ec2 as ec2,
   aws_ecr_assets as ecra,
   aws_ecs as ecs,
-  aws_logs as logs,
   aws_secretsmanager as secretsmanager,
+  aws_dynamodb as dynamodb
 } from 'aws-cdk-lib'
 import { Construct } from 'constructs'
+import { schema, tableName } from '../src/thread_relation'
 
 interface ChatGptDiscordBotStackProps extends StackProps {
   secret: secretsmanager.ISecret
@@ -73,5 +74,11 @@ export class ChatGptDiscordBotStack extends Stack {
       platformVersion: ecs.FargatePlatformVersion.VERSION1_4,
       taskDefinition,
     })
+    new dynamodb.Table(this, 'Table', {
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      tableName,
+      partitionKey: { name: schema.hashKey, type: schema.getAttributeType(schema.hashKey) as dynamodb.AttributeType },
+      removalPolicy: RemovalPolicy.DESTROY,
+    }).grantReadWriteData(taskDefinition.taskRole)
   }
 }
