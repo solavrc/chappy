@@ -1,5 +1,7 @@
 # Chappy - Discord AI Chat BOT
 
+<img width="1731" alt="image" src="https://github.com/solavrc/chappy/assets/145330217/3445a633-5d89-4017-8a1f-d435dd5b672f">
+
 [Install Here](https://discord.com/oauth2/authorize?client_id=1152630659777572926)
 
 Chappy is a Discord AI chat bot designed to explore how people interact with AI. It is free to use, but please note that all conversations are recorded and analyzed for research purposes. The availability of this edition is subject to change without notice. You can also self-host this bot.
